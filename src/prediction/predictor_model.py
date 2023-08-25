@@ -129,12 +129,13 @@ class Classifier:
         return model
 
     def __str__(self):
+        # sort params alphabetically for unit test to run successfully
         return (
-            f"Model name: {self.model_name}\n"
-            f"n_estimators: {self.n_estimators}\n"
-            f"criterion: {self.criterion}\n"
-            f"min_samples_split: {self.min_samples_split}\n"
-            f"min_samples_leaf: {self.min_samples_leaf}"
+            f"Model name: {self.model_name} ("
+            f"criterion: {self.criterion}, "
+            f"min_samples_leaf: {self.min_samples_leaf}, "
+            f"min_samples_split: {self.min_samples_split}, "
+            f"n_estimators: {self.n_estimators})"
         )
 
 

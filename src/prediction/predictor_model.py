@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.exceptions import NotFittedError
+from sklearn.metrics import f1_score
 
 warnings.filterwarnings("ignore")
 
@@ -29,6 +30,8 @@ class Classifier:
         criterion: Optional[str] = "gini",
         min_samples_split: Optional[int] = 2,
         min_samples_leaf: Optional[int] = 1,
+        decision_threshold: Optional[float] = 0.5,
+        positive_class_weight: Optional[float] = 1.0,
         **kwargs,
     ):
         """Construct a new Extra Trees binary classifier.
@@ -45,11 +48,17 @@ class Classifier:
             min_samples_leaf (int, optional): The minimum number of samples required
                 to be at a leaf node.
                 Defaults to 1.
+            decision_threshold (float, optional): The decision threshold for
+                the positive class. Defaults to 0.5.
+            positive_class_weight (float, optional): The weight of the positive
+                class. Defaults to 1.0.
         """
         self.n_estimators = int(n_estimators)
         self.criterion = criterion
         self.min_samples_split = int(min_samples_split)
         self.min_samples_leaf = int(min_samples_leaf)
+        self.decision_threshold = decision_threshold
+        self.positive_class_weight = positive_class_weight
         self.model = self.build_model()
         self._is_trained = False
 
@@ -60,6 +69,7 @@ class Classifier:
             criterion=self.criterion,
             min_samples_split=self.min_samples_split,
             min_samples_leaf=self.min_samples_leaf,
+            class_weight={0: 1.0, 1: self.positive_class_weight},
         )
         return model
 
@@ -73,15 +83,28 @@ class Classifier:
         self.model.fit(train_inputs, train_targets)
         self._is_trained = True
 
-    def predict(self, inputs: pd.DataFrame) -> np.ndarray:
+    def predict(
+        self,
+        inputs: pd.DataFrame,
+        decision_threshold: float = -1,
+    ) -> np.ndarray:
         """Predict class labels for the given data.
 
         Args:
             inputs (pandas.DataFrame): The input data.
+            decision_threshold (Optional float): Decision threshold for the
+                positive class.
+                Value -1 indicates use the default set when model was
+                instantiated.
         Returns:
             numpy.ndarray: The predicted class labels.
         """
-        return self.model.predict(inputs)
+        if decision_threshold == -1:
+            decision_threshold = self.decision_threshold
+        if self.model is not None:
+            prob = self.predict_proba(inputs)
+            labels = prob[:, 1] >= decision_threshold
+        return labels
 
     def predict_proba(self, inputs: pd.DataFrame) -> np.ndarray:
         """Predict class probabilities for the given data.
@@ -93,17 +116,32 @@ class Classifier:
         """
         return self.model.predict_proba(inputs)
 
-    def evaluate(self, test_inputs: pd.DataFrame, test_targets: pd.Series) -> float:
-        """Evaluate the binary classifier and return the accuracy.
+    def evaluate(
+        self,
+        test_inputs: pd.DataFrame,
+        test_targets: pd.Series,
+        decision_threshold: float = -1,
+    ) -> float:
+        """Evaluate the classifier and return the accuracy.
 
         Args:
             test_inputs (pandas.DataFrame): The features of the test data.
             test_targets (pandas.Series): The labels of the test data.
+            decision_threshold (Optional float): Decision threshold for the
+                positive class.
+                Value -1 indicates use the default set when model was
+                instantiated.
         Returns:
-            float: The accuracy of the binary classifier.
+            float: The accuracy of the classifier.
         """
+        if decision_threshold == -1:
+            decision_threshold = self.decision_threshold
         if self.model is not None:
-            return self.model.score(test_inputs, test_targets)
+            prob = self.predict_proba(test_inputs)
+            labels = prob[:, 1] >= decision_threshold
+            score = f1_score(test_targets, labels)
+            return score
+
         raise NotFittedError("Model is not fitted yet.")
 
     def save(self, model_dir_path: str) -> None:
@@ -205,7 +243,10 @@ def load_predictor_model(predictor_dir_path: str) -> Classifier:
 
 
 def evaluate_predictor_model(
-    model: Classifier, x_test: pd.DataFrame, y_test: pd.Series
+    model: Classifier,
+    x_test: pd.DataFrame,
+    y_test: pd.Series,
+    decision_threshold: float = -1,
 ) -> float:
     """
     Evaluate the classifier model and return the accuracy.
@@ -214,8 +255,23 @@ def evaluate_predictor_model(
         model (Classifier): The classifier model.
         x_test (pd.DataFrame): The features of the test data.
         y_test (pd.Series): The labels of the test data.
+        decision_threshold (Union(optional, float)): Decision threshold
+                for predicted label.
+                Value -1 indicates use the default set when model was
+                instantiated.
 
     Returns:
         float: The accuracy of the classifier model.
     """
-    return model.evaluate(x_test, y_test)
+    return model.evaluate(x_test, y_test, decision_threshold)
+
+
+def set_decision_threshold(model: Classifier, decision_threshold: float) -> None:
+    """
+    Set the decision threshold for the classifier model.
+
+    Args:
+        model (Classifier): The classifier model.
+        decision_threshold (float): The decision threshold.
+    """
+    model.decision_threshold = decision_threshold
